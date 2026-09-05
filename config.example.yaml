@@ -1,0 +1,31 @@
+discord:
+  bot_token: "${DISCORD_BOT_TOKEN}"
+  channel_id: "123456789012345678"
+
+security:
+  # Discord user IDs permitted to change keys/models and run /refresh.
+  admin_user_ids: ["123456789012345678"]
+  encryption_key_env: "KEY_ENCRYPTION_SECRET"
+
+schedule:
+  reconcile_interval_sec: 90
+  active_probe_interval_min: 20
+  probe_stagger_sec: 3
+  stale_after_min: 30
+
+# v1.1 선택 기능: 같은 서버의 OpenClaw 실사용 오류를 감지해 해당 모델을 우선 재확인합니다.
+# 로그는 보조 신호일 뿐이며, 키별 최종 상태는 countTokens 직접 확인 결과를 사용합니다.
+openclaw_observer:
+  enabled: false
+  command: ["openclaw", "logs", "--follow"]
+  restart_delay_sec: 10
+  event_cooldown_sec: 60
+
+# Optional initial records. Runtime /key and /model commands are persisted in SQLite.
+api_keys: []
+models:
+  - "google/gemini-3.7-flash"
+  - "google/gemini-3.6-flash"
+  - "google/gemini-3.5-flash"
+  - "google/gemini-3-flash-preview"
+  - "google/gemini-3.1-flash-lite"
