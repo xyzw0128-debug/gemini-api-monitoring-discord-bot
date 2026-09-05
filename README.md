@@ -278,6 +278,70 @@ OpenClaw 로그만으로 “어느 API 키가 제한되었다”고 확정하지
 > systemd 서비스는 `gemini-monitor` 사용자로 실행됩니다. `openclaw` 명령도 이 사용자가 실행할 수 있어야 합니다.
 > `sudo -u gemini-monitor openclaw logs --follow`가 실패한다면 OpenClaw 설치 위치/권한을 먼저 확인하세요.
 
+### OpenClaw가 내 로그인 사용자(`lael`)에게만 설치된 경우
+
+OpenClaw를 `npm`으로 개인 사용자에게 설치했다면 다음과 같이 `command not found`가 날 수 있습니다.
+
+```text
+sudo -u gemini-monitor openclaw logs --follow
+sudo: 'openclaw': command not found
+```
+
+이 경우 봇 서비스도 OpenClaw를 설치한 사용자로 실행하면 됩니다. 아래 예시는 OpenClaw 경로가
+`/home/lael/.npm-global/bin/openclaw`이고 Node.js 경로가
+`/home/linuxbrew/.linuxbrew/bin/node`인 경우입니다.
+
+먼저 observer 명령을 절대 경로로 설정합니다.
+
+```bash
+sudo nano /etc/gemini-api-monitor/config.yaml
+```
+
+`openclaw_observer` 부분을 아래처럼 바꾸세요.
+
+```yaml
+openclaw_observer:
+  enabled: true
+  command: ["/home/lael/.npm-global/bin/openclaw", "logs", "--follow"]
+  restart_delay_sec: 10
+  event_cooldown_sec: 60
+```
+
+그다음 systemd override를 만듭니다.
+
+```bash
+sudo systemctl edit gemini-api-monitor
+```
+
+열린 편집기에 아래 내용을 그대로 넣고 저장하세요.
+
+```ini
+[Service]
+User=lael
+Group=lael
+ProtectHome=read-only
+Environment="PATH=/home/lael/.npm-global/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+```
+
+서비스가 필요한 파일을 읽고 DB를 쓸 수 있도록 권한을 맞춥니다.
+
+```bash
+sudo chown -R lael:lael /opt/gemini-api-monitoring-discord-bot /var/lib/gemini-api-monitor
+sudo chown root:lael /etc/gemini-api-monitor/config.yaml /etc/gemini-api-monitor/secrets.env
+sudo chmod 640 /etc/gemini-api-monitor/config.yaml /etc/gemini-api-monitor/secrets.env
+```
+
+마지막으로 OpenClaw 명령이 서비스와 같은 환경에서 실행되는지 한 번 확인한 뒤 서비스를 재시작합니다.
+
+```bash
+sudo -u lael env PATH=/home/lael/.npm-global/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /home/lael/.npm-global/bin/openclaw logs --follow
+# 로그가 보이면 Ctrl+C로 종료
+
+sudo systemctl daemon-reload
+sudo systemctl restart gemini-api-monitor
+sudo journalctl -u gemini-api-monitor -f
+```
+
 ---
 
 ## Discord 명령어 모음
