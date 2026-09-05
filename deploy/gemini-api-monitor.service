@@ -1,0 +1,24 @@
+[Unit]
+Description=Gemini API Monitoring Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gemini-monitor
+Group=gemini-monitor
+WorkingDirectory=/opt/gemini-api-monitoring-discord-bot
+Environment=MONITOR_CONFIG=/etc/gemini-api-monitor/config.yaml
+Environment=MONITOR_DB=/var/lib/gemini-api-monitor/monitor.db
+EnvironmentFile=/etc/gemini-api-monitor/secrets.env
+ExecStart=/opt/gemini-api-monitoring-discord-bot/.venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gemini-api-monitor
+
+[Install]
+WantedBy=multi-user.target
