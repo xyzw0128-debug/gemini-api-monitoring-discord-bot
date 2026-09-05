@@ -37,6 +37,27 @@ Discord Developer Portal에서 봇을 서버에 초대할 때는 다음을 선�
 
 아래 방법은 “일단 잘 되는지 확인”할 때 쓰세요.
 
+### 0. 먼저 프로젝트 파일을 PC에 받아야 합니다
+
+위 명령에서 오류가 난 이유는 현재 PC에 `gemini-api-monitoring-discord-bot` 폴더가 없기 때문입니다.
+아래 설치 명령은 **프로젝트 파일을 이미 받은 다음**에만 실행할 수 있습니다.
+
+GitHub에 저장소가 있다면, 저장소 주소를 넣어 아래처럼 받습니다.
+
+```bash
+cd ~
+git clone <저장소_주소> gemini-api-monitoring-discord-bot
+cd ~/gemini-api-monitoring-discord-bot
+```
+
+예를 들어 주소가 `https://github.com/내계정/내저장소.git`라면 다음과 같습니다.
+
+```bash
+git clone https://github.com/내계정/내저장소.git gemini-api-monitoring-discord-bot
+```
+
+GitHub을 사용하지 않는다면, 이 프로젝트 폴더 전체를 Ubuntu PC로 복사한 뒤 그 폴더에서 다음 단계로 진행하세요.
+
 ### 1. 필요한 프로그램 설치
 
 Ubuntu라면 터미널에서 실행합니다.
@@ -49,7 +70,7 @@ sudo apt install -y python3 python3-venv python3-pip
 ### 2. 프로젝트 폴더에서 준비
 
 ```bash
-cd gemini-api-monitoring-discord-bot
+cd ~/gemini-api-monitoring-discord-bot
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
