@@ -244,6 +244,42 @@ sudo systemctl restart gemini-api-monitor
 
 ---
 
+## v1.1: OpenClaw 실사용 오류도 함께 보기 (선택)
+
+기본 봇은 각 API 키와 모델에 직접 신호를 보내 상태를 확인합니다. 여기에 OpenClaw 로그 감지를 켜면,
+유이가 실제로 사용 중 429, 503, 과부하 또는 timeout을 만났을 때 해당 모델을 바로 다시 확인합니다.
+
+이 기능은 **선택 사항**입니다. OpenClaw를 쓰지 않으면 아무것도 바꿀 필요가 없습니다.
+
+같은 Ubuntu 서버에서 OpenClaw와 봇을 실행한다면 `/etc/gemini-api-monitor/config.yaml`에서 다음을 바꾸세요.
+
+```yaml
+openclaw_observer:
+  enabled: true
+```
+
+그 뒤 봇을 다시 시작합니다.
+
+```bash
+sudo systemctl restart gemini-api-monitor
+sudo journalctl -u gemini-api-monitor -f
+```
+
+상태판에는 최근 실사용 오류가 아래처럼 **보조 정보**로 표시됩니다.
+
+```text
+실사용 감지 (보조 정보)
+• gemini-3.5-flash: OpenClaw overloaded 감지 — 재확인 요청됨
+```
+
+OpenClaw 로그만으로 “어느 API 키가 제한되었다”고 확정하지는 않습니다. 로그는 빠른 경고 역할만 하고,
+최종 🟢/🔴 상태는 봇이 해당 키와 모델에 직접 보낸 확인 요청 결과로 결정됩니다.
+
+> systemd 서비스는 `gemini-monitor` 사용자로 실행됩니다. `openclaw` 명령도 이 사용자가 실행할 수 있어야 합니다.
+> `sudo -u gemini-monitor openclaw logs --follow`가 실패한다면 OpenClaw 설치 위치/권한을 먼저 확인하세요.
+
+---
+
 ## Discord 명령어 모음
 
 | 명령어 | 하는 일 |

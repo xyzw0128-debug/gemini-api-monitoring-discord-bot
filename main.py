@@ -7,6 +7,7 @@ import os
 from config import load_config
 from database import StateStore
 from discord_bot import MonitorBot
+from openclaw_observer import OpenClawObserver
 from scheduler import ProbeScheduler
 
 
@@ -20,6 +21,13 @@ async def run() -> None:
     async with bot:
         asyncio.create_task(scheduler.active_loop())
         asyncio.create_task(scheduler.reconcile_loop())
+        if config.openclaw_observer.enabled:
+            observer = OpenClawObserver(
+                store, scheduler, config.openclaw_observer.command,
+                config.openclaw_observer.restart_delay_sec,
+                config.openclaw_observer.event_cooldown_sec, bot.render_dashboard,
+            )
+            asyncio.create_task(observer.run())
         await bot.start(config.discord.bot_token)
 
 

@@ -98,16 +98,26 @@ class MonitorBot(discord.Client):
         by_model = defaultdict(dict)
         for row in self.store.rows(): by_model[row["model_id"]][row["key_id"]] = row
         lines, statuses = [], []
+        labels = {model: model.removeprefix("google/").replace("-", " ").title() for model in models}
+        longest_label = max((len(label) for label in labels.values()), default=0)
         for model in models:
             records = by_model[model]
             row_statuses = [records.get(key.id, {"status": "unknown"})["status"] for key in keys]
             statuses.extend(row_statuses)
             limited = sum(status == "limited" for status in row_statuses)
-            label = model.removeprefix("google/").replace("-", " ").title()
-            lines.append(f"`{label:<30}` {''.join(ICONS[status] for status in row_statuses)}  ({limited}/{len(keys)} 제한)")
+            label = labels[model]
+            lines.append(f"`{label:<{longest_label}}`   {''.join(ICONS[status] for status in row_statuses)}  ({limited}/{len(keys)} 제한)")
+        events = self.store.recent_runtime_events()
+        if events:
+            event_lines = [
+                f"• {event['model_id'].removeprefix('google/')}: OpenClaw {event['kind']} 감지 — 재확인 요청됨"
+                for event in events
+            ]
+            lines.extend(["", "**실사용 감지 (보조 정보)**", *event_lines])
         color = discord.Color.green() if statuses and all(status == "ok" for status in statuses) else (discord.Color.red() if any(status in {"limited", "invalid"} for status in statuses) else discord.Color.orange())
         embed = discord.Embed(title="Gemini API Key Limit Monitor", description="\n".join(lines) or "등록된 키와 모델이 없습니다.", color=color, timestamp=datetime.now(UTC))
-        embed.set_footer(text="키 순서: " + (" · ".join(f"{index + 1}={key.id}" for index, key in enumerate(keys)) or "없음") + " | 🟢 정상 · 🔴 제한 · ⚠️ 오류 · ⚪ 미확인/재확인 대기")
+        key_order = " · ".join(f"{index + 1}={key.id}" for index, key in enumerate(keys)) or "없음"
+        embed.set_footer(text=f"키 순서: {key_order}\n🟢 정상 · 🔴 제한 · ⚠️ 오류 · ⚪ 미확인/재확인 대기")
         return embed
 
     async def render_dashboard(self) -> None:

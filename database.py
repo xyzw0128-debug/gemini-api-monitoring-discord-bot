@@ -30,6 +30,9 @@ class StateStore:
           limit_type TEXT, reset_at TEXT, last_checked TEXT, raw_message TEXT, recheck_pending INTEGER NOT NULL DEFAULT 0,
           PRIMARY KEY(key_id, model_id), FOREIGN KEY(key_id) REFERENCES api_keys(id), FOREIGN KEY(model_id) REFERENCES models(id));
         CREATE TABLE IF NOT EXISTS app_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS runtime_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, model_id TEXT NOT NULL, kind TEXT NOT NULL,
+          observed_at TEXT NOT NULL, message TEXT NOT NULL);
         """)
         self.db.commit()
 
@@ -114,6 +117,21 @@ class StateStore:
 
     def rows(self) -> list[sqlite3.Row]:
         return self.db.execute("SELECT * FROM probe_state ORDER BY model_id, key_id").fetchall()
+
+    def record_runtime_event(self, model_id: str, kind: str, message: str, observed_at: datetime) -> None:
+        self.db.execute(
+            "INSERT INTO runtime_events(model_id, kind, observed_at, message) VALUES (?, ?, ?, ?)",
+            (model_id, kind, observed_at.isoformat(), message[:500]),
+        )
+        self.db.commit()
+
+    def recent_runtime_events(self, limit: int = 3) -> list[sqlite3.Row]:
+        return self.db.execute(
+            "SELECT model_id, kind, observed_at, message FROM runtime_events ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+    def targets_for_models(self, model_ids: set[str]) -> list[tuple[ApiKey, str]]:
+        return [(key, model) for key in self.list_keys() for model in self.list_models() if model in model_ids]
 
     def get_app_state(self, name: str) -> str | None:
         row = self.db.execute("SELECT value FROM app_state WHERE name=?", (name,)).fetchone()

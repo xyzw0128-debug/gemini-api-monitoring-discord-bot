@@ -45,10 +45,19 @@ class ScheduleConfig:
 
 
 @dataclass(frozen=True)
+class OpenClawObserverConfig:
+    enabled: bool
+    command: tuple[str, ...]
+    restart_delay_sec: int
+    event_cooldown_sec: int
+
+
+@dataclass(frozen=True)
 class AppConfig:
     discord: DiscordConfig
     security: SecurityConfig
     schedule: ScheduleConfig
+    openclaw_observer: OpenClawObserverConfig
     initial_keys: tuple[ApiKey, ...]
     initial_models: tuple[str, ...]
 
@@ -58,6 +67,7 @@ def load_config(path: str | Path) -> AppConfig:
     discord = raw.get("discord", {})
     security = raw.get("security", {})
     schedule = raw.get("schedule", {})
+    observer = raw.get("openclaw_observer", {})
     token = str(discord.get("bot_token", ""))
     channel_id = str(discord.get("channel_id", ""))
     if not token or not channel_id.isdigit():
@@ -85,6 +95,12 @@ def load_config(path: str | Path) -> AppConfig:
             int(schedule.get("active_probe_interval_min", 20)),
             float(schedule.get("probe_stagger_sec", 3)),
             int(schedule.get("stale_after_min", 30)),
+        ),
+        openclaw_observer=OpenClawObserverConfig(
+            bool(observer.get("enabled", False)),
+            tuple(str(part) for part in observer.get("command", ["openclaw", "logs", "--follow"])),
+            int(observer.get("restart_delay_sec", 10)),
+            int(observer.get("event_cooldown_sec", 60)),
         ),
         initial_keys=keys,
         initial_models=models,

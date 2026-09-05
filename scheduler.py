@@ -30,6 +30,10 @@ class ProbeScheduler:
     async def refresh_all(self) -> None:
         await self.probe(self.store.all_targets())
 
+    async def refresh_models(self, model_ids: set[str]) -> None:
+        """Prioritize a small subset after an observed real-use failure."""
+        await self.probe(self.store.targets_for_models(model_ids))
+
     async def active_loop(self) -> None:
         while True:
             stale_before = datetime.now(UTC) - timedelta(minutes=self.stale_minutes)
