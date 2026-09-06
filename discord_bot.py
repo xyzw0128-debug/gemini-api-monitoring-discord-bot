@@ -34,7 +34,7 @@ class MonitorBot(discord.Client):
         self.scheduler = scheduler
 
     def _is_admin(self, interaction: discord.Interaction) -> bool:
-        return not self.admin_ids or interaction.user.id in self.admin_ids
+        return interaction.user.id in self.admin_ids
 
     async def _deny(self, interaction: discord.Interaction) -> bool:
         if self._is_admin(interaction):
@@ -93,7 +93,8 @@ class MonitorBot(discord.Client):
         async def refresh(interaction: discord.Interaction) -> None:
             if await self._deny(interaction): return
             await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
-            if self.scheduler: asyncio.create_task(self.scheduler.refresh_all())
+            if self.scheduler:
+                self.scheduler.refresh_all()
             
         @config_group.command(name="cooldown", description="429 한도 도달 시 쿨다운 시간(분 단위)을 설정합니다.")
         async def set_cooldown(interaction: discord.Interaction, minutes: int) -> None:
@@ -109,14 +110,30 @@ class MonitorBot(discord.Client):
             if await self._deny(interaction): return
             sec = int(self.store.get_app_state("retry_seconds") or "1800")
             await interaction.response.send_message(f"현재 설정된 쿨다운 시간: **{sec // 60}분** ({sec}초)", ephemeral=True)
-        # /stop 명령어
-        @self.tree.command(name="stop", description="현재 진행 중인 프로브/테스트 작업을 즉시 중단합니다.")
-        async def stop_probe(interaction: discord.Interaction) -> None:
+        @self.tree.command(name="reset", description="진행 및 대기 중인 모든 프로브를 취소하고 확인 상태를 초기화합니다.")
+        async def reset_probes(interaction: discord.Interaction) -> None:
             if await self._deny(interaction): return
-            if self.scheduler and self.scheduler.cancel_current():
-                await interaction.response.send_message(" 진행 중인 테스트 작업을 중단했습니다.", ephemeral=True)
-            else:
-                await interaction.response.send_message("현재 실행 중인 테스트 작업이 없습니다.", ephemeral=True)
+            if not self.scheduler:
+                await interaction.response.send_message("프로브 스케줄러가 준비되지 않았습니다.", ephemeral=True)
+                return
+            cancelled, reset_states = await self.scheduler.reset()
+            await interaction.response.send_message(
+                f"프로브 작업 {cancelled}개를 취소하고 확인 중 상태 {reset_states}개를 ⚪로 초기화했습니다.",
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="status", description="현재 실행 또는 대기 중인 프로브 작업을 확인합니다.")
+        async def probe_status(interaction: discord.Interaction) -> None:
+            if await self._deny(interaction): return
+            jobs = self.scheduler.status() if self.scheduler else []
+            if not jobs:
+                await interaction.response.send_message("실행 또는 대기 중인 프로브 작업이 없습니다.", ephemeral=True)
+                return
+            lines = [
+                f"• {'실행 중' if job.running else '대기 중'} · {job.source}: {job.completed}/{job.total} 대상 완료"
+                for job in jobs
+            ]
+            await interaction.response.send_message("현재 프로브 작업\n" + "\n".join(lines), ephemeral=True)
 
         # /test 그룹 명령어
         test_group = app_commands.Group(name="test", description="특정 대상 개별 테스트")
@@ -129,7 +146,7 @@ class MonitorBot(discord.Client):
                 return
             await interaction.response.send_message(f"모델 `{name}`의 키 상태 재확인을 시작합니다.", ephemeral=True)
             if self.scheduler:
-                await self.scheduler.refresh_model(name)
+                self.scheduler.refresh_model(name)
 
         @test_group.command(name="key", description="특정 키에 연결된 모델들만 즉시 테스트합니다.")
         async def test_key(interaction: discord.Interaction, id: str) -> None:
@@ -140,7 +157,7 @@ class MonitorBot(discord.Client):
                 return
             await interaction.response.send_message(f"키 `{id}`의 모델 상태 재확인을 시작합니다.", ephemeral=True)
             if self.scheduler:
-                await self.scheduler.refresh_key(id)
+                self.scheduler.refresh_key(id)
 
         self.tree.add_command(test_group)
         self.tree.add_command(key)
