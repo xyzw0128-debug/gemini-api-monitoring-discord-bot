@@ -4,6 +4,9 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+KST = ZoneInfo("Asia/Seoul")
+
 from typing import TYPE_CHECKING
 
 import discord
@@ -15,7 +18,7 @@ from models import ApiKey
 if TYPE_CHECKING:
     from scheduler import ProbeScheduler
 
-ICONS = {"ok": "🟢", "limited": "🔴", "invalid": "⚠️", "unknown": "⚪"}
+ICONS = {"ok": "🟢", "limited": "🔴", "invalid": "⚠️", "unknown": "⚪", "checking": "🔵"}
 
 
 class MonitorBot(discord.Client):
@@ -42,6 +45,7 @@ class MonitorBot(discord.Client):
     def _register_commands(self) -> None:
         key = app_commands.Group(name="key", description="API 키 관리")
         model = app_commands.Group(name="model", description="Gemini 모델 관리")
+        config_group = app_commands.Group(name="config", description="모니터링 설정 관리")
 
         @key.command(name="add", description="API 키를 추가합니다.")
         async def add_key(interaction: discord.Interaction, id: str, value: str) -> None:
@@ -90,8 +94,58 @@ class MonitorBot(discord.Client):
             if await self._deny(interaction): return
             await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
             if self.scheduler: asyncio.create_task(self.scheduler.refresh_all())
+            
+        @config_group.command(name="cooldown", description="429 한도 도달 시 쿨다운 시간(분 단위)을 설정합니다.")
+        async def set_cooldown(interaction: discord.Interaction, minutes: int) -> None:
+            if await self._deny(interaction): return
+            if minutes < 1:
+                await interaction.response.send_message("쿨다운 시간은 최소 1분 이상이어야 합니다.", ephemeral=True)
+                return
+            self.store.set_app_state("retry_seconds", str(minutes * 60))
+            await interaction.response.send_message(f"쿨다운 대기 시간이 **{minutes}분**({minutes * 60}초)으로 설정되었습니다.", ephemeral=True)
 
-        self.tree.add_command(key); self.tree.add_command(model)
+        @config_group.command(name="get", description="현재 설정된 모니터링 설정을 확인합니다.")
+        async def get_config(interaction: discord.Interaction) -> None:
+            if await self._deny(interaction): return
+            sec = int(self.store.get_app_state("retry_seconds") or "1800")
+            await interaction.response.send_message(f"현재 설정된 쿨다운 시간: **{sec // 60}분** ({sec}초)", ephemeral=True)
+        # /stop 명령어
+        @self.tree.command(name="stop", description="현재 진행 중인 프로브/테스트 작업을 즉시 중단합니다.")
+        async def stop_probe(interaction: discord.Interaction) -> None:
+            if await self._deny(interaction): return
+            if self.scheduler and self.scheduler.cancel_current():
+                await interaction.response.send_message(" 진행 중인 테스트 작업을 중단했습니다.", ephemeral=True)
+            else:
+                await interaction.response.send_message("현재 실행 중인 테스트 작업이 없습니다.", ephemeral=True)
+
+        # /test 그룹 명령어
+        test_group = app_commands.Group(name="test", description="특정 대상 개별 테스트")
+
+        @test_group.command(name="model", description="특정 모델에 연결된 키들만 즉시 테스트합니다.")
+        async def test_model(interaction: discord.Interaction, name: str) -> None:
+            if await self._deny(interaction): return
+            if name not in self.store.list_models():
+                await interaction.response.send_message(f"등록되지 않은 모델입니다: `{name}`", ephemeral=True)
+                return
+            await interaction.response.send_message(f"모델 `{name}`의 키 상태 재확인을 시작합니다.", ephemeral=True)
+            if self.scheduler:
+                await self.scheduler.refresh_model(name)
+
+        @test_group.command(name="key", description="특정 키에 연결된 모델들만 즉시 테스트합니다.")
+        async def test_key(interaction: discord.Interaction, id: str) -> None:
+            if await self._deny(interaction): return
+            keys = [k.id for k in self.store.list_keys()]
+            if id not in keys:
+                await interaction.response.send_message(f"등록되지 않은 키 ID입니다: `{id}`", ephemeral=True)
+                return
+            await interaction.response.send_message(f"키 `{id}`의 모델 상태 재확인을 시작합니다.", ephemeral=True)
+            if self.scheduler:
+                await self.scheduler.refresh_key(id)
+
+        self.tree.add_command(test_group)
+        self.tree.add_command(key)
+        self.tree.add_command(model)
+        self.tree.add_command(config_group)
 
     def _embed(self) -> discord.Embed:
         keys, models = self.store.list_keys(), self.store.list_models()
@@ -110,14 +164,15 @@ class MonitorBot(discord.Client):
         events = self.store.recent_runtime_events()
         if events:
             event_lines = [
-                f"• {event['model_id'].removeprefix('google/')}: OpenClaw {event['kind']} 감지 — 재확인 요청됨"
+                f"• {event['model_id'].removeprefix('google/')}: OpenClaw {event['kind']} 감지"
+                f"({datetime.fromisoformat(event['observed_at']).astimezone(KST).strftime('%H:%M:%S')}) — 재확인 요청됨"
                 for event in events
             ]
             lines.extend(["", "**실사용 감지 (보조 정보)**", *event_lines])
         color = discord.Color.green() if statuses and all(status == "ok" for status in statuses) else (discord.Color.red() if any(status in {"limited", "invalid"} for status in statuses) else discord.Color.orange())
         embed = discord.Embed(title="Gemini API Key Limit Monitor", description="\n".join(lines) or "등록된 키와 모델이 없습니다.", color=color, timestamp=datetime.now(UTC))
         key_order = " · ".join(f"{index + 1}={key.id}" for index, key in enumerate(keys)) or "없음"
-        embed.set_footer(text=f"키 순서: {key_order}\n🟢 정상 · 🔴 제한 · ⚠️ 오류 · ⚪ 미확인/재확인 대기")
+        embed.set_footer(text=f"키 순서: {key_order}\n🟢 정상 · 🔴 제한 · ⚠️ 오류 · ⚪ 미확인/재확인 대기 · 🔵 확인 중")
         return embed
 
     async def render_dashboard(self) -> None:

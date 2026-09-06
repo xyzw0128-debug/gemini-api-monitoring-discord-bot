@@ -4,6 +4,9 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -94,6 +97,10 @@ class StateStore:
             self.add_model(model)
         self._ensure_matrix()
         self.db.commit()
+        
+    def reset_checking_to_unknown(self) -> None:
+        self.db.execute("UPDATE probe_state SET status='unknown' WHERE status='checking'")
+        self.db.commit()
 
     def record(self, result: ProbeResult) -> None:
         self.db.execute("""UPDATE probe_state SET status=?, limit_type=?, reset_at=?, last_checked=?, raw_message=?, recheck_pending=0
@@ -105,6 +112,13 @@ class StateStore:
           WHERE status='limited' AND reset_at IS NOT NULL AND reset_at <= ?""", (now.isoformat(),))
         self.db.commit()
         return cursor.rowcount > 0
+    
+    def mark_checking(self, key_id: str, model_id: str) -> None:
+        self.db.execute(
+            "UPDATE probe_state SET status='checking' WHERE key_id=? AND model_id=?",
+            (key_id, model_id),
+            )
+        self.db.commit()
 
     def probe_targets(self, stale_before: datetime) -> list[tuple[ApiKey, str]]:
         rows = self.db.execute("""SELECT k.id, k.encrypted_value, p.model_id FROM probe_state p

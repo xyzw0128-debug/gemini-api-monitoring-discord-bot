@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-Status = Literal["ok", "limited", "invalid", "unknown"]
+Status = Literal["ok", "limited", "invalid", "unknown", "checking"]
 
 
 @dataclass(frozen=True)
