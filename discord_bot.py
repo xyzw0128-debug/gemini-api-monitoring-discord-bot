@@ -21,6 +21,44 @@ if TYPE_CHECKING:
 ICONS = {"ok": "🟢", "limited": "🔴", "invalid": "⚠️", "unknown": "⚪", "checking": "🔵"}
 
 
+class DashboardControls(discord.ui.View):
+    """Persistent administrator controls attached to the dashboard message."""
+
+    def __init__(self, bot: "MonitorBot") -> None:
+        super().__init__(timeout=None)
+        self.bot = bot
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return not await self.bot._deny(interaction)
+
+    @discord.ui.button(label="전체 재확인", style=discord.ButtonStyle.primary, custom_id="monitor:refresh")
+    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not self.bot.scheduler:
+            await interaction.response.send_message("프로브 스케줄러가 준비되지 않았습니다.", ephemeral=True)
+            return
+        if self.bot.scheduler.has_job("전체 재확인"):
+            await interaction.response.send_message("전체 재확인이 이미 진행 또는 대기 중입니다.", ephemeral=True)
+            return
+        self.bot.scheduler.refresh_all()
+        await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
+
+    @discord.ui.button(label="작업 상태", style=discord.ButtonStyle.secondary, custom_id="monitor:status")
+    async def status(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_message(self.bot.probe_status_message(), ephemeral=True)
+
+    @discord.ui.button(label="RESET", style=discord.ButtonStyle.danger, custom_id="monitor:reset")
+    async def reset(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not self.bot.scheduler:
+            await interaction.response.send_message("프로브 스케줄러가 준비되지 않았습니다.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        cancelled, reset_states = await self.bot.scheduler.reset()
+        await interaction.followup.send(
+            f"프로브 작업 {cancelled}개를 취소하고 확인 중 상태 {reset_states}개를 ⚪로 초기화했습니다.",
+            ephemeral=True,
+        )
+
+
 class MonitorBot(discord.Client):
     def __init__(self, store: StateStore, channel_id: int, admin_ids: frozenset[int]):
         super().__init__(intents=discord.Intents.none())
@@ -28,19 +66,32 @@ class MonitorBot(discord.Client):
         self.store, self.channel_id, self.admin_ids = store, channel_id, admin_ids
         self.scheduler: ProbeScheduler | None = None
         self._render_lock = asyncio.Lock()
+        self._controls_attached = False
+        self.dashboard_controls = DashboardControls(self)
+        self.add_view(self.dashboard_controls)
         self._register_commands()
 
     def set_scheduler(self, scheduler: "ProbeScheduler") -> None:
         self.scheduler = scheduler
 
     def _is_admin(self, interaction: discord.Interaction) -> bool:
-        return not self.admin_ids or interaction.user.id in self.admin_ids
+        return interaction.user.id in self.admin_ids
 
     async def _deny(self, interaction: discord.Interaction) -> bool:
         if self._is_admin(interaction):
             return False
         await interaction.response.send_message("관리자 전용 명령어입니다.", ephemeral=True)
         return True
+
+    def probe_status_message(self) -> str:
+        jobs = self.scheduler.status() if self.scheduler else []
+        if not jobs:
+            return "실행 또는 대기 중인 프로브 작업이 없습니다."
+        lines = [
+            f"• {'실행 중' if job.running else '대기 중'} · {job.source}: {job.completed}/{job.total} 대상 완료"
+            for job in jobs
+        ]
+        return "현재 프로브 작업\n" + "\n".join(lines)
 
     def _register_commands(self) -> None:
         key = app_commands.Group(name="key", description="API 키 관리")
@@ -92,8 +143,12 @@ class MonitorBot(discord.Client):
         @self.tree.command(name="refresh", description="전체 키/모델 조합을 즉시 재확인합니다.")
         async def refresh(interaction: discord.Interaction) -> None:
             if await self._deny(interaction): return
+            if self.scheduler and self.scheduler.has_job("전체 재확인"):
+                await interaction.response.send_message("전체 재확인이 이미 진행 또는 대기 중입니다.", ephemeral=True)
+                return
             await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
-            if self.scheduler: asyncio.create_task(self.scheduler.refresh_all())
+            if self.scheduler:
+                self.scheduler.refresh_all()
             
         @config_group.command(name="cooldown", description="429 한도 도달 시 쿨다운 시간(분 단위)을 설정합니다.")
         async def set_cooldown(interaction: discord.Interaction, minutes: int) -> None:
@@ -109,14 +164,22 @@ class MonitorBot(discord.Client):
             if await self._deny(interaction): return
             sec = int(self.store.get_app_state("retry_seconds") or "1800")
             await interaction.response.send_message(f"현재 설정된 쿨다운 시간: **{sec // 60}분** ({sec}초)", ephemeral=True)
-        # /stop 명령어
-        @self.tree.command(name="stop", description="현재 진행 중인 프로브/테스트 작업을 즉시 중단합니다.")
-        async def stop_probe(interaction: discord.Interaction) -> None:
+        @self.tree.command(name="reset", description="진행 및 대기 중인 모든 프로브를 취소하고 확인 상태를 초기화합니다.")
+        async def reset_probes(interaction: discord.Interaction) -> None:
             if await self._deny(interaction): return
-            if self.scheduler and self.scheduler.cancel_current():
-                await interaction.response.send_message(" 진행 중인 테스트 작업을 중단했습니다.", ephemeral=True)
-            else:
-                await interaction.response.send_message("현재 실행 중인 테스트 작업이 없습니다.", ephemeral=True)
+            if not self.scheduler:
+                await interaction.response.send_message("프로브 스케줄러가 준비되지 않았습니다.", ephemeral=True)
+                return
+            cancelled, reset_states = await self.scheduler.reset()
+            await interaction.response.send_message(
+                f"프로브 작업 {cancelled}개를 취소하고 확인 중 상태 {reset_states}개를 ⚪로 초기화했습니다.",
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="status", description="현재 실행 또는 대기 중인 프로브 작업을 확인합니다.")
+        async def probe_status(interaction: discord.Interaction) -> None:
+            if await self._deny(interaction): return
+            await interaction.response.send_message(self.probe_status_message(), ephemeral=True)
 
         # /test 그룹 명령어
         test_group = app_commands.Group(name="test", description="특정 대상 개별 테스트")
@@ -129,7 +192,7 @@ class MonitorBot(discord.Client):
                 return
             await interaction.response.send_message(f"모델 `{name}`의 키 상태 재확인을 시작합니다.", ephemeral=True)
             if self.scheduler:
-                await self.scheduler.refresh_model(name)
+                self.scheduler.refresh_model(name)
 
         @test_group.command(name="key", description="특정 키에 연결된 모델들만 즉시 테스트합니다.")
         async def test_key(interaction: discord.Interaction, id: str) -> None:
@@ -140,7 +203,7 @@ class MonitorBot(discord.Client):
                 return
             await interaction.response.send_message(f"키 `{id}`의 모델 상태 재확인을 시작합니다.", ephemeral=True)
             if self.scheduler:
-                await self.scheduler.refresh_key(id)
+                self.scheduler.refresh_key(id)
 
         self.tree.add_command(test_group)
         self.tree.add_command(key)
@@ -179,7 +242,7 @@ class MonitorBot(discord.Client):
         async with self._render_lock:
             embed = self._embed()
             signature = f"{embed.title}|{embed.description}|{embed.colour.value}|{embed.footer.text}"
-            if signature == self.store.get_app_state("render_signature"):
+            if signature == self.store.get_app_state("render_signature") and self._controls_attached:
                 return
             channel = self.get_channel(self.channel_id) or await self.fetch_channel(self.channel_id)
             message_id = self.store.get_app_state("status_message_id")
@@ -188,11 +251,12 @@ class MonitorBot(discord.Client):
             except (discord.NotFound, ValueError):
                 message = None
             if message is None:
-                message = await channel.send(embed=embed)
+                message = await channel.send(embed=embed, view=self.dashboard_controls)
                 self.store.set_app_state("status_message_id", str(message.id))
             else:
-                await message.edit(embed=embed)
+                await message.edit(embed=embed, view=self.dashboard_controls)
             self.store.set_app_state("render_signature", signature)
+            self._controls_attached = True
 
     async def on_ready(self) -> None:
         await self.tree.sync()

@@ -22,7 +22,7 @@ def test_quota_parsing_preserves_quota_id_and_model() -> None:
     limit_type, reset_at = parse_quota_error(payload, now)
     assert "quotaId=GenerateRequestsPerMinute" in limit_type
     assert "model=gemini-3.6-flash" in limit_type
-    assert reset_at == now + timedelta(seconds=15)
+    assert reset_at == now + timedelta(seconds=1800)
 
 
 def test_short_429_uses_conservative_default() -> None:

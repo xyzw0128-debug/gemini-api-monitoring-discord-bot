@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 KST = ZoneInfo("Asia/Seoul")
@@ -98,9 +98,10 @@ class StateStore:
         self._ensure_matrix()
         self.db.commit()
         
-    def reset_checking_to_unknown(self) -> None:
-        self.db.execute("UPDATE probe_state SET status='unknown' WHERE status='checking'")
+    def reset_checking_to_unknown(self) -> int:
+        cursor = self.db.execute("UPDATE probe_state SET status='unknown' WHERE status='checking'")
         self.db.commit()
+        return cursor.rowcount
 
     def record(self, result: ProbeResult) -> None:
         self.db.execute("""UPDATE probe_state SET status=?, limit_type=?, reset_at=?, last_checked=?, raw_message=?, recheck_pending=0
@@ -139,9 +140,17 @@ class StateStore:
         )
         self.db.commit()
 
-    def recent_runtime_events(self, limit: int = 3) -> list[sqlite3.Row]:
+    def prune_runtime_events(self, max_age_minutes: int = 30, now: datetime | None = None) -> int:
+        cutoff = (now or datetime.now(UTC)) - timedelta(minutes=max_age_minutes)
+        cursor = self.db.execute("DELETE FROM runtime_events WHERE observed_at < ?", (cutoff.isoformat(),))
+        self.db.commit()
+        return cursor.rowcount
+
+    def recent_runtime_events(self, limit: int = 3, max_age_minutes: int = 30, now: datetime | None = None) -> list[sqlite3.Row]:
+        cutoff = (now or datetime.now(UTC)) - timedelta(minutes=max_age_minutes)
         return self.db.execute(
-            "SELECT model_id, kind, observed_at, message FROM runtime_events ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT model_id, kind, observed_at, message FROM runtime_events WHERE observed_at >= ? ORDER BY id DESC LIMIT ?",
+            (cutoff.isoformat(), limit),
         ).fetchall()
 
     def targets_for_models(self, model_ids: set[str]) -> list[tuple[ApiKey, str]]:
