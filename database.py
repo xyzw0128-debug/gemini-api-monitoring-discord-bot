@@ -98,9 +98,10 @@ class StateStore:
         self._ensure_matrix()
         self.db.commit()
         
-    def reset_checking_to_unknown(self) -> None:
-        self.db.execute("UPDATE probe_state SET status='unknown' WHERE status='checking'")
+    def reset_checking_to_unknown(self) -> int:
+        cursor = self.db.execute("UPDATE probe_state SET status='unknown' WHERE status='checking'")
         self.db.commit()
+        return cursor.rowcount
 
     def record(self, result: ProbeResult) -> None:
         self.db.execute("""UPDATE probe_state SET status=?, limit_type=?, reset_at=?, last_checked=?, raw_message=?, recheck_pending=0

@@ -63,7 +63,7 @@ class OpenClawObserver:
         self._last_seen[key] = now
         self.store.record_runtime_event(model_id, kind, f"OpenClaw {kind} 감지", now)
         await self.render()
-        asyncio.create_task(self.scheduler.refresh_models({model_id}))
+        self.scheduler.refresh_models({model_id})
         return True
 
     async def run(self) -> None:

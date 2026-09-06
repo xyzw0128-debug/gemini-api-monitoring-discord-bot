@@ -72,6 +72,9 @@ def load_config(path: str | Path) -> AppConfig:
     channel_id = str(discord.get("channel_id", ""))
     if not token or not channel_id.isdigit():
         raise ValueError("discord.bot_token and numeric discord.channel_id are required")
+    admin_ids = frozenset(int(value) for value in security.get("admin_user_ids", []))
+    if not admin_ids:
+        raise ValueError("security.admin_user_ids must contain at least one Discord user ID")
 
     keys = tuple(ApiKey(str(item["id"]), str(item["value"])) for item in raw.get("api_keys", []))
     if any(not key.id or not key.value for key in keys):
@@ -87,7 +90,7 @@ def load_config(path: str | Path) -> AppConfig:
     return AppConfig(
         discord=DiscordConfig(token, int(channel_id)),
         security=SecurityConfig(
-            frozenset(int(value) for value in security.get("admin_user_ids", [])),
+            admin_ids,
             str(security.get("encryption_key_env", "KEY_ENCRYPTION_SECRET")),
         ),
         schedule=ScheduleConfig(
