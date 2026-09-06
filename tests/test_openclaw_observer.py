@@ -11,7 +11,7 @@ class FakeScheduler:
     def __init__(self) -> None:
         self.models: list[set[str]] = []
 
-    async def refresh_models(self, model_ids: set[str]) -> None:
+    def refresh_models(self, model_ids: set[str]) -> None:
         self.models.append(model_ids)
 
 

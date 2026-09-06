@@ -13,6 +13,8 @@ def test_config_expands_environment_and_accepts_variable_counts(tmp_path, monkey
     path.write_text("""discord:
   bot_token: ${BOT}
   channel_id: '1'
+security:
+  admin_user_ids: [123]
 api_keys:
   - id: first
     value: ${KEY_ONE}
@@ -32,7 +34,20 @@ def test_config_rejects_duplicate_models(tmp_path, monkeypatch) -> None:
     path.write_text("""discord:
   bot_token: ${BOT}
   channel_id: '1'
+security:
+  admin_user_ids: [123]
 models: [google/gemini-one, google/gemini-one]
 """, encoding="utf-8")
     with pytest.raises(ValueError, match="Duplicate models"):
+        load_config(path)
+
+
+def test_config_requires_an_administrator_id(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BOT", "bot-token")
+    path = tmp_path / "config.yaml"
+    path.write_text("""discord:
+  bot_token: ${BOT}
+  channel_id: '1'
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="admin_user_ids"):
         load_config(path)
