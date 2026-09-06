@@ -35,7 +35,7 @@ class ProbeScheduler:
 
     def _start(self, targets: list[tuple], source: str, *, stagger: bool = True) -> asyncio.Task | None:
         """Start one cancellable probe job, unless a reset is in progress."""
-        if not targets or self._resetting:
+        if not targets or self._resetting or self.has_job(source):
             return None
         job = ProbeJob(source=source, total=len(targets))
         task = asyncio.create_task(self._probe(targets, job, stagger=stagger), name=f"probe:{source}")
@@ -68,6 +68,9 @@ class ProbeScheduler:
     def status(self) -> list[ProbeJob]:
         return list(self._jobs.values())
 
+    def has_job(self, source: str) -> bool:
+        return any(job.source == source for job in self._jobs.values())
+
     async def reset(self) -> tuple[int, int]:
         """Cancel every running or queued probe and clear transient checking states."""
         self._resetting = True
@@ -87,7 +90,8 @@ class ProbeScheduler:
         return self._start(self.store.all_targets(), "전체 재확인")
 
     def refresh_models(self, model_ids: set[str]) -> asyncio.Task | None:
-        return self._start(self.store.targets_for_models(model_ids), "OpenClaw 모델 재확인")
+        models = ", ".join(sorted(model_ids))
+        return self._start(self.store.targets_for_models(model_ids), f"OpenClaw 모델 재확인: {models}")
 
     def refresh_key(self, key_id: str) -> asyncio.Task | None:
         targets = [(k, m) for k, m in self.store.all_targets() if k.id == key_id]
@@ -110,6 +114,7 @@ class ProbeScheduler:
 
     async def reconcile_loop(self) -> None:
         while True:
-            if self.store.mark_expired_for_recheck(datetime.now(UTC)):
+            now = datetime.now(UTC)
+            if self.store.mark_expired_for_recheck(now) or self.store.prune_runtime_events(now=now):
                 await self.render()
             await asyncio.sleep(self.reconcile_seconds)

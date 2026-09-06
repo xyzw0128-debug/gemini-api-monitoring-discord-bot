@@ -36,6 +36,9 @@ class DashboardControls(discord.ui.View):
         if not self.bot.scheduler:
             await interaction.response.send_message("프로브 스케줄러가 준비되지 않았습니다.", ephemeral=True)
             return
+        if self.bot.scheduler.has_job("전체 재확인"):
+            await interaction.response.send_message("전체 재확인이 이미 진행 또는 대기 중입니다.", ephemeral=True)
+            return
         self.bot.scheduler.refresh_all()
         await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
 
@@ -140,6 +143,9 @@ class MonitorBot(discord.Client):
         @self.tree.command(name="refresh", description="전체 키/모델 조합을 즉시 재확인합니다.")
         async def refresh(interaction: discord.Interaction) -> None:
             if await self._deny(interaction): return
+            if self.scheduler and self.scheduler.has_job("전체 재확인"):
+                await interaction.response.send_message("전체 재확인이 이미 진행 또는 대기 중입니다.", ephemeral=True)
+                return
             await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
             if self.scheduler:
                 self.scheduler.refresh_all()
