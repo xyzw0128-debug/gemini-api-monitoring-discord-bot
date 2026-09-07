@@ -32,6 +32,7 @@ async def run() -> None:
                 store, scheduler, config.openclaw_observer.command,
                 config.openclaw_observer.restart_delay_sec,
                 config.openclaw_observer.event_cooldown_sec, bot.render_dashboard,
+                probe_key_limit=config.openclaw_observer.probe_key_limit,
             )
             asyncio.create_task(observer.run())
         await bot.start(config.discord.bot_token)

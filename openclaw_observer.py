@@ -44,9 +44,10 @@ class OpenClawObserver:
         restart_delay_sec: int,
         cooldown_sec: int,
         render: Callable[[], Awaitable[None]],
+        probe_key_limit: int = 1,
     ):
         self.store, self.scheduler, self.command = store, scheduler, command
-        self.restart_delay_sec, self.cooldown_sec, self.render = restart_delay_sec, cooldown_sec, render
+        self.restart_delay_sec, self.cooldown_sec, self.probe_key_limit, self.render = restart_delay_sec, cooldown_sec, probe_key_limit, render
         self._last_seen: dict[tuple[str, str], datetime] = {}
 
     async def handle_line(self, line: str) -> bool:
@@ -65,7 +66,7 @@ class OpenClawObserver:
         self.store.record_runtime_event(model_id, kind, f"OpenClaw {kind} 감지", now)
         log_event("openclaw_event", model_id=model_id, kind=kind)
         await self.render()
-        self.scheduler.refresh_models({model_id})
+        self.scheduler.refresh_models({model_id}, key_limit=self.probe_key_limit)
         return True
 
     async def run(self) -> None:

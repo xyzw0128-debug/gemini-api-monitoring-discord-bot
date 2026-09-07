@@ -51,6 +51,7 @@ class OpenClawObserverConfig:
     command: tuple[str, ...]
     restart_delay_sec: int
     event_cooldown_sec: int
+    probe_key_limit: int
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ def load_config(path: str | Path) -> AppConfig:
             tuple(str(part) for part in observer.get("command", ["openclaw", "logs", "--follow"])),
             int(observer.get("restart_delay_sec", 10)),
             int(observer.get("event_cooldown_sec", 60)),
+            probe_key_limit,
         ),
         initial_keys=keys,
         initial_models=models,

@@ -258,6 +258,7 @@ models:
 | `schedule.model_key_parallelism` | 같은 모델의 키를 동시에 점검하는 최대 수 | `5` |
 | `openclaw_observer.enabled` | OpenClaw 로그 관찰기 사용 여부 | `false` |
 | `openclaw_observer.event_cooldown_sec` | 같은 모델/이벤트 로그를 다시 처리하기 전 대기 | `60`초 |
+| `openclaw_observer.probe_key_limit` | OpenClaw 오류 뒤 재확인할 대표 키 수 | `1` |
 
 문자열 값 안의 `${ENV_VAR}` 표기는 해당 환경 변수 값으로 치환됩니다.
 

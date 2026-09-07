@@ -114,9 +114,9 @@ class ProbeScheduler:
     def refresh_all(self) -> asyncio.Task | None:
         return self._start(self.store.all_targets(), "전체 재확인")
 
-    def refresh_models(self, model_ids: set[str]) -> asyncio.Task | None:
+    def refresh_models(self, model_ids: set[str], key_limit: int | None = None) -> asyncio.Task | None:
         models = ", ".join(sorted(model_ids))
-        return self._start(self.store.targets_for_models(model_ids), f"OpenClaw 모델 재확인: {models}")
+        return self._start(self.store.targets_for_models(model_ids, key_limit), f"OpenClaw 모델 재확인: {models}")
 
     def refresh_key(self, key_id: str) -> asyncio.Task | None:
         targets = [(k, m) for k, m in self.store.all_targets() if k.id == key_id]
