@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from probe import DEFAULT_RETRY_SECONDS, api_model_name, parse_quota_error, parse_retry_delay
+from probe import DEFAULT_RETRY_SECONDS, api_model_name, parse_quota_error, parse_retry_delay, sanitize_message
 
 
 def test_display_prefix_is_removed_for_google_api() -> None:
@@ -28,3 +28,9 @@ def test_quota_parsing_preserves_quota_id_and_model() -> None:
 def test_short_429_uses_conservative_default() -> None:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     assert parse_quota_error({}, now) == ("unknown", now + timedelta(seconds=DEFAULT_RETRY_SECONDS))
+
+
+def test_error_message_redacts_api_keys() -> None:
+    message = "redirect to https://example.test/?key=AIzaSecret-Value&next=x; key AIzaAnother"
+    assert "AIza" not in sanitize_message(message)
+    assert "key=[REDACTED]" in sanitize_message(message)

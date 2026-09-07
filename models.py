@@ -23,3 +23,6 @@ class ProbeResult:
     reset_at: datetime | None
     checked_at: datetime
     raw_message: str | None
+    http_status: int | None = None
+    latency_ms: int | None = None
+    error_type: str | None = None

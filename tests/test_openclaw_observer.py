@@ -11,7 +11,7 @@ class FakeScheduler:
     def __init__(self) -> None:
         self.models: list[set[str]] = []
 
-    def refresh_models(self, model_ids: set[str]) -> None:
+    def refresh_models(self, model_ids: set[str], key_limit: int | None = None) -> None:
         self.models.append(model_ids)
 
 
@@ -33,7 +33,7 @@ def test_observer_records_once_and_prioritizes_matching_model(tmp_path) -> None:
             nonlocal renders
             renders += 1
 
-        observer = OpenClawObserver(store, scheduler, ("openclaw", "logs", "--follow"), 1, 60, render)
+        observer = OpenClawObserver(store, scheduler, ("openclaw", "logs", "--follow"), 1, 60, render, probe_key_limit=1)
         line = "info provider=google model=gemini-3.6-flash status=429"
         assert await observer.handle_line(line)
         await asyncio.sleep(0)

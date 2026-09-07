@@ -12,6 +12,7 @@ from typing import Awaitable, Callable
 import aiohttp
 
 from database import StateStore
+from monitor_logging import log_event
 from probe import probe_key_model
 
 Render = Callable[[], Awaitable[None]]
@@ -48,6 +49,7 @@ class ProbeScheduler:
         retry_sec = int(self.store.get_app_state("retry_seconds") or "1800")
 
         try:
+            log_event("probe_job_started", source=job.source, target_count=job.total)
             async with self.lock, aiohttp.ClientSession() as session:
                 job.running = True
                 for index, (key, model) in enumerate(targets):
@@ -55,15 +57,23 @@ class ProbeScheduler:
                         await asyncio.sleep(self.stagger_seconds)
 
                     self.store.mark_checking(key.id, model)
+                    log_event("probe_started", source=job.source, key_id=key.id, model_id=model)
                     await self.render()
 
                     result = await probe_key_model(session, key.id, key.value, model, default_retry_sec=retry_sec)
-                    self.store.record(result)
+                    self.store.record(result, job.source)
+                    log_event(
+                        "probe_finished", source=job.source, key_id=key.id, model_id=model,
+                        outcome=result.status, http_status=result.http_status, latency_ms=result.latency_ms,
+                        limit_type=result.limit_type, reset_at=result.reset_at, error_type=result.error_type,
+                    )
                     job.completed = index + 1
                     await self.render()
         except asyncio.CancelledError:
             # reset() collects every cancelled job before it clears all transient states once.
             raise
+        finally:
+            log_event("probe_job_finished", source=job.source, completed_count=job.completed, target_count=job.total)
 
     def status(self) -> list[ProbeJob]:
         return list(self._jobs.values())
@@ -89,9 +99,9 @@ class ProbeScheduler:
     def refresh_all(self) -> asyncio.Task | None:
         return self._start(self.store.all_targets(), "전체 재확인")
 
-    def refresh_models(self, model_ids: set[str]) -> asyncio.Task | None:
+    def refresh_models(self, model_ids: set[str], key_limit: int | None = None) -> asyncio.Task | None:
         models = ", ".join(sorted(model_ids))
-        return self._start(self.store.targets_for_models(model_ids), f"OpenClaw 모델 재확인: {models}")
+        return self._start(self.store.targets_for_models(model_ids, key_limit), f"OpenClaw 모델 재확인: {models}")
 
     def refresh_key(self, key_id: str) -> asyncio.Task | None:
         targets = [(k, m) for k, m in self.store.all_targets() if k.id == key_id]
@@ -115,6 +125,9 @@ class ProbeScheduler:
     async def reconcile_loop(self) -> None:
         while True:
             now = datetime.now(UTC)
-            if self.store.mark_expired_for_recheck(now) or self.store.prune_runtime_events(now=now):
+            changed = self.store.mark_expired_for_recheck(now)
+            changed = bool(self.store.prune_runtime_events(now=now)) or changed
+            changed = bool(self.store.prune_probe_events(now=now)) or changed
+            if changed:
                 await self.render()
             await asyncio.sleep(self.reconcile_seconds)

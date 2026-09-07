@@ -36,7 +36,16 @@ class StateStore:
         CREATE TABLE IF NOT EXISTS runtime_events (
           id INTEGER PRIMARY KEY AUTOINCREMENT, model_id TEXT NOT NULL, kind TEXT NOT NULL,
           observed_at TEXT NOT NULL, message TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS probe_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, occurred_at TEXT NOT NULL, job_source TEXT NOT NULL,
+          key_id TEXT NOT NULL, model_id TEXT NOT NULL, status TEXT NOT NULL, http_status INTEGER,
+          latency_ms INTEGER, limit_type TEXT, reset_at TEXT, error_type TEXT, message TEXT);
+        CREATE INDEX IF NOT EXISTS probe_events_occurred_at ON probe_events(occurred_at);
         """)
+        # Older releases could persist a ClientResponseError URL, including ?key=.
+        self.db.execute("""UPDATE probe_state
+          SET raw_message='[REDACTED: legacy message may have contained an API key]'
+          WHERE raw_message LIKE '%AIza%' OR raw_message LIKE '%key=%'""")
         self.db.commit()
 
     @staticmethod
@@ -103,9 +112,17 @@ class StateStore:
         self.db.commit()
         return cursor.rowcount
 
-    def record(self, result: ProbeResult) -> None:
+    def record(self, result: ProbeResult, job_source: str = "unspecified") -> None:
         self.db.execute("""UPDATE probe_state SET status=?, limit_type=?, reset_at=?, last_checked=?, raw_message=?, recheck_pending=0
           WHERE key_id=? AND model_id=?""", (result.status, result.limit_type, result.reset_at.isoformat() if result.reset_at else None, result.checked_at.isoformat(), result.raw_message, result.key_id, result.model_id))
+        self.db.execute("""INSERT INTO probe_events(
+          occurred_at, job_source, key_id, model_id, status, http_status, latency_ms,
+          limit_type, reset_at, error_type, message
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (
+            result.checked_at.isoformat(), job_source, result.key_id, result.model_id, result.status,
+            result.http_status, result.latency_ms, result.limit_type,
+            result.reset_at.isoformat() if result.reset_at else None, result.error_type, result.raw_message,
+        ))
         self.db.commit()
 
     def mark_expired_for_recheck(self, now: datetime) -> bool:
@@ -122,9 +139,12 @@ class StateStore:
         self.db.commit()
 
     def probe_targets(self, stale_before: datetime) -> list[tuple[ApiKey, str]]:
+        now = datetime.now(UTC)
         rows = self.db.execute("""SELECT k.id, k.encrypted_value, p.model_id FROM probe_state p
-          JOIN api_keys k ON k.id=p.key_id WHERE p.recheck_pending=1 OR p.last_checked IS NULL OR p.last_checked <= ?
-          ORDER BY p.recheck_pending DESC, p.last_checked""", (stale_before.isoformat(),)).fetchall()
+          JOIN api_keys k ON k.id=p.key_id
+          WHERE (p.recheck_pending=1 OR p.last_checked IS NULL OR p.last_checked <= ?)
+            AND NOT (p.status='limited' AND p.reset_at IS NOT NULL AND p.reset_at > ?)
+          ORDER BY p.recheck_pending DESC, p.last_checked""", (stale_before.isoformat(), now.isoformat())).fetchall()
         return [(ApiKey(row["id"], self.fernet.decrypt(row["encrypted_value"]).decode()), row["model_id"]) for row in rows]
 
     def all_targets(self) -> list[tuple[ApiKey, str]]:
@@ -146,6 +166,12 @@ class StateStore:
         self.db.commit()
         return cursor.rowcount
 
+    def prune_probe_events(self, max_age_days: int = 30, now: datetime | None = None) -> int:
+        cutoff = (now or datetime.now(UTC)) - timedelta(days=max_age_days)
+        cursor = self.db.execute("DELETE FROM probe_events WHERE occurred_at < ?", (cutoff.isoformat(),))
+        self.db.commit()
+        return cursor.rowcount
+
     def recent_runtime_events(self, limit: int = 3, max_age_minutes: int = 30, now: datetime | None = None) -> list[sqlite3.Row]:
         cutoff = (now or datetime.now(UTC)) - timedelta(minutes=max_age_minutes)
         return self.db.execute(
@@ -153,8 +179,9 @@ class StateStore:
             (cutoff.isoformat(), limit),
         ).fetchall()
 
-    def targets_for_models(self, model_ids: set[str]) -> list[tuple[ApiKey, str]]:
-        return [(key, model) for key in self.list_keys() for model in self.list_models() if model in model_ids]
+    def targets_for_models(self, model_ids: set[str], key_limit: int | None = None) -> list[tuple[ApiKey, str]]:
+        keys = self.list_keys() if key_limit is None else self.list_keys()[:key_limit]
+        return [(key, model) for key in keys for model in self.list_models() if model in model_ids]
 
     def get_app_state(self, name: str) -> str | None:
         row = self.db.execute("SELECT value FROM app_state WHERE name=?", (name,)).fetchone()
