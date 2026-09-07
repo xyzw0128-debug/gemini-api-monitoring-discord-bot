@@ -26,6 +26,7 @@ models: [google/gemini-one, google/gemini-two, google/gemini-three]
     assert len(config.initial_keys) == 2
     assert len(config.initial_models) == 3
     assert config.initial_keys[1].value == "two"
+    assert config.openclaw_observer.probe_key_limit == 1
 
 
 def test_config_rejects_duplicate_models(tmp_path, monkeypatch) -> None:
@@ -65,4 +66,19 @@ schedule:
   model_key_parallelism: 0
 """, encoding="utf-8")
     with pytest.raises(ValueError, match="model_key_parallelism"):
+        load_config(path)
+
+
+def test_config_rejects_zero_openclaw_probe_key_limit(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BOT", "bot-token")
+    path = tmp_path / "config.yaml"
+    path.write_text("""discord:
+  bot_token: ${BOT}
+  channel_id: '1'
+security:
+  admin_user_ids: [123]
+openclaw_observer:
+  probe_key_limit: 0
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="probe_key_limit"):
         load_config(path)
