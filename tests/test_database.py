@@ -36,3 +36,15 @@ def test_runtime_events_older_than_thirty_minutes_are_removed(tmp_path) -> None:
     events = store.recent_runtime_events(now=now)
 
     assert [event["message"] for event in events] == ["new"]
+
+
+def test_limited_target_waits_for_reset_and_probe_events_expire(tmp_path) -> None:
+    store = StateStore(tmp_path / "monitor.db", Fernet.generate_key().decode())
+    store.bootstrap((ApiKey("one", "secret"),), ("google/gemini-a",))
+    now = datetime.now(UTC)
+    store.record(ProbeResult("one", "google/gemini-a", "limited", "quota", now + timedelta(hours=1), now, "429", 429, 12))
+
+    assert store.probe_targets(now + timedelta(minutes=1)) == []
+    event = store.db.execute("SELECT job_source, http_status FROM probe_events").fetchone()
+    assert (event["job_source"], event["http_status"]) == ("unspecified", 429)
+    assert store.prune_probe_events(now=now + timedelta(days=31)) == 1

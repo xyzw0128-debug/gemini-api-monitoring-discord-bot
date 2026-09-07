@@ -29,9 +29,10 @@
 ## 주요 기능
 
 - **키 × 모델 매트릭스 자동 관리**: 키나 모델을 추가하면 모든 조합이 상태 테이블에 자동으로 채워지고, 조합별로 상태를 개별 추적합니다.
-- **저비용 프로브**: `generateContent`에 최소 요청("ping")을 보내 실제 사용량에 거의 영향을 주지 않으면서 사용 가능 여부만 확인합니다(요청당 20초 타임아웃).
+- **저출력 프로브**: `generateContent`에 최소 요청("ping")과 `maxOutputTokens: 1`을 보내 생성 요청 가능 여부를 확인합니다(요청당 20초 타임아웃). 요청 건수는 Gemini 사용량/할당량에 영향을 줄 수 있습니다.
 - **순차·스태거 실행**: 모든 프로브는 하나의 잠금으로 한 번에 하나씩만 실행되고, 요청 사이에 `probe_stagger_sec`만큼 간격을 둡니다. 동일한 작업(예: "전체 재확인")이 이미 진행 중이면 중복 실행되지 않습니다.
-- **자동 재확인 + 시간 기반 정리**: `active_probe_interval_min` 주기로 재확인 대기 중이거나 한 번도 확인되지 않았거나 `stale_after_min`보다 오래된 조합을 우선순위대로 재확인합니다. 더 짧은 `reconcile_interval_sec` 주기로는 네트워크 호출 없이, 한도 초과(`limited`) 상태의 `reset_at` 시각이 지나면 "미확인 + 재확인 대기"로 되돌리고 오래된 OpenClaw 이벤트를 정리합니다.
+- **자동 재확인 + 시간 기반 정리**: `active_probe_interval_min` 주기로 재확인 대기 중이거나 한 번도 확인되지 않았거나 `stale_after_min`보다 오래된 조합을 우선순위대로 재확인합니다. 아직 `reset_at`에 도달하지 않은 `limited` 조합은 stale 여부와 관계없이 제외합니다. 더 짧은 `reconcile_interval_sec` 주기로는 네트워크 호출 없이, 한도 초과(`limited`) 상태의 `reset_at` 시각이 지나면 "미확인 + 재확인 대기"로 되돌리고 오래된 OpenClaw 이벤트와 프로브 이력을 정리합니다.
+- **감사 가능한 프로브 이력**: 각 프로브의 시각·키 ID·모델·작업 출처·HTTP 상태·지연 시간·제한 정보는 SQLite `probe_events`에 30일 동안 보관하고, API 키를 제외한 구조화 JSON 로그를 표준 출력에 남깁니다.
 - **429 응답 상세 해석**: Google 응답의 `QuotaFailure`(quotaId, model)와 `RetryInfo`(retryDelay)를 파싱합니다. 실제 대기 시간은 Google이 알려준 값과 관리자가 설정한 최소 쿨다운(`/config cooldown`, 기본 1800초 = 30분) 중 **더 긴 쪽**을 사용합니다.
 - **고정 대시보드 임베드**: 채널에 메시지 하나만 유지하며 내용이 바뀔 때만 수정합니다(변화가 없으면 API 호출 자체를 하지 않음). 모델(행) × 키(열) 상태를 이모지 그리드로 보여주고, 관리자 전용 버튼(전체 재확인/작업 상태/RESET)이 붙어 있습니다.
 - **OpenClaw 실사용 감지 (선택 기능)**: 외부 프로세스의 로그를 구독해 `provider=google` 관련 429·과부하·타임아웃을 감지하면, 그 자체로 상태를 바꾸지 않고 해당 모델의 재확인만 우선 예약합니다. 최종 상태는 항상 직접 프로브 결과로만 결정됩니다.
@@ -256,6 +257,7 @@ models:
 | `schedule.stale_after_min` | 마지막 확인 뒤 자동 재확인 대상으로 보는 시간 | `30`분 |
 | `openclaw_observer.enabled` | OpenClaw 로그 관찰기 사용 여부 | `false` |
 | `openclaw_observer.event_cooldown_sec` | 같은 모델/이벤트 로그를 다시 처리하기 전 대기 | `60`초 |
+| `openclaw_observer.probe_key_limit` | OpenClaw 오류 뒤 재확인할 대표 키 수 | `1` |
 
 문자열 값 안의 `${ENV_VAR}` 표기는 해당 환경 변수 값으로 치환됩니다.
 

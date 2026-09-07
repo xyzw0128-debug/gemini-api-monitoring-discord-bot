@@ -50,6 +50,7 @@ class OpenClawObserverConfig:
     command: tuple[str, ...]
     restart_delay_sec: int
     event_cooldown_sec: int
+    probe_key_limit: int
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,10 @@ def load_config(path: str | Path) -> AppConfig:
     if len(set(models)) != len(models):
         raise ValueError("Duplicate models in configuration")
 
+    probe_key_limit = int(observer.get("probe_key_limit", 1))
+    if probe_key_limit < 1:
+        raise ValueError("openclaw_observer.probe_key_limit must be at least 1")
+
     return AppConfig(
         discord=DiscordConfig(token, int(channel_id)),
         security=SecurityConfig(
@@ -104,6 +109,7 @@ def load_config(path: str | Path) -> AppConfig:
             tuple(str(part) for part in observer.get("command", ["openclaw", "logs", "--follow"])),
             int(observer.get("restart_delay_sec", 10)),
             int(observer.get("event_cooldown_sec", 60)),
+            probe_key_limit,
         ),
         initial_keys=keys,
         initial_models=models,
