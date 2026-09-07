@@ -42,6 +42,7 @@ class ScheduleConfig:
     active_probe_interval_min: int
     probe_stagger_sec: float
     stale_after_min: int
+    model_key_parallelism: int
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,10 @@ def load_config(path: str | Path) -> AppConfig:
     if len(set(models)) != len(models):
         raise ValueError("Duplicate models in configuration")
 
+    model_key_parallelism = int(schedule.get("model_key_parallelism", 5))
+    if model_key_parallelism < 1:
+        raise ValueError("schedule.model_key_parallelism must be at least 1")
+
     return AppConfig(
         discord=DiscordConfig(token, int(channel_id)),
         security=SecurityConfig(
@@ -98,6 +103,7 @@ def load_config(path: str | Path) -> AppConfig:
             int(schedule.get("active_probe_interval_min", 20)),
             float(schedule.get("probe_stagger_sec", 3)),
             int(schedule.get("stale_after_min", 30)),
+            model_key_parallelism,
         ),
         openclaw_observer=OpenClawObserverConfig(
             bool(observer.get("enabled", False)),

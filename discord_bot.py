@@ -40,7 +40,7 @@ class DashboardControls(discord.ui.View):
             await interaction.response.send_message("전체 재확인이 이미 진행 또는 대기 중입니다.", ephemeral=True)
             return
         self.bot.scheduler.refresh_all()
-        await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
+        await interaction.response.send_message("전체 재확인을 시작했습니다. 같은 모델의 키는 동시에 점검합니다.", ephemeral=True)
 
     @discord.ui.button(label="작업 상태", style=discord.ButtonStyle.secondary, custom_id="monitor:status")
     async def status(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -146,7 +146,7 @@ class MonitorBot(discord.Client):
             if self.scheduler and self.scheduler.has_job("전체 재확인"):
                 await interaction.response.send_message("전체 재확인이 이미 진행 또는 대기 중입니다.", ephemeral=True)
                 return
-            await interaction.response.send_message("전체 재확인을 시작했습니다. 요청은 순차적으로 전송됩니다.", ephemeral=True)
+            await interaction.response.send_message("전체 재확인을 시작했습니다. 같은 모델의 키는 동시에 점검합니다.", ephemeral=True)
             if self.scheduler:
                 self.scheduler.refresh_all()
             
@@ -184,6 +184,20 @@ class MonitorBot(discord.Client):
         # /test 그룹 명령어
         test_group = app_commands.Group(name="test", description="특정 대상 개별 테스트")
 
+        async def model_choices(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            return [
+                app_commands.Choice(name=model_id, value=model_id)
+                for model_id in self.store.list_models()
+                if current.casefold() in model_id.casefold()
+            ][:25]
+
+        async def key_choices(_: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            return [
+                app_commands.Choice(name=key.id, value=key.id)
+                for key in self.store.list_keys()
+                if current.casefold() in key.id.casefold()
+            ][:25]
+
         @test_group.command(name="model", description="특정 모델에 연결된 키들만 즉시 테스트합니다.")
         async def test_model(interaction: discord.Interaction, name: str) -> None:
             if await self._deny(interaction): return
@@ -193,6 +207,8 @@ class MonitorBot(discord.Client):
             await interaction.response.send_message(f"모델 `{name}`의 키 상태 재확인을 시작합니다.", ephemeral=True)
             if self.scheduler:
                 self.scheduler.refresh_model(name)
+
+        test_model.autocomplete("name")(model_choices)
 
         @test_group.command(name="key", description="특정 키에 연결된 모델들만 즉시 테스트합니다.")
         async def test_key(interaction: discord.Interaction, id: str) -> None:
@@ -204,6 +220,8 @@ class MonitorBot(discord.Client):
             await interaction.response.send_message(f"키 `{id}`의 모델 상태 재확인을 시작합니다.", ephemeral=True)
             if self.scheduler:
                 self.scheduler.refresh_key(id)
+
+        test_key.autocomplete("id")(key_choices)
 
         self.tree.add_command(test_group)
         self.tree.add_command(key)

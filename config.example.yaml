@@ -12,9 +12,11 @@ schedule:
   active_probe_interval_min: 20
   probe_stagger_sec: 3
   stale_after_min: 30
+  # 같은 모델의 서로 다른 키를 동시에 점검하는 최대 수입니다.
+  model_key_parallelism: 5
 
 # v1.1 선택 기능: 같은 서버의 OpenClaw 실사용 오류를 감지해 해당 모델을 우선 재확인합니다.
-# 로그는 보조 신호일 뿐이며, 키별 최종 상태는 countTokens 직접 확인 결과를 사용합니다.
+# 로그는 보조 신호일 뿐이며, 키별 최종 상태는 generateContent 직접 확인 결과를 사용합니다.
 openclaw_observer:
   enabled: false
   command: ["openclaw", "logs", "--follow"]

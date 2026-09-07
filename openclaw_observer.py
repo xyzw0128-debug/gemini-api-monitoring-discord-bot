@@ -1,7 +1,7 @@
 """Optional passive observer for OpenClaw real-use Google failures.
 
 It never changes a key's final status from a log line. Instead it records a
-model-level event and schedules countTokens probes for that model's known keys.
+model-level event and schedules generateContent probes for that model's known keys.
 """
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Awaitable, Callable
 
 from database import StateStore
+from monitor_logging import log_event
 from scheduler import ProbeScheduler
 
 _MODEL = re.compile(r"\bmodel=([A-Za-z0-9._-]+)")
@@ -62,6 +63,7 @@ class OpenClawObserver:
             return False
         self._last_seen[key] = now
         self.store.record_runtime_event(model_id, kind, f"OpenClaw {kind} 감지", now)
+        log_event("openclaw_event", model_id=model_id, kind=kind)
         await self.render()
         self.scheduler.refresh_models({model_id})
         return True

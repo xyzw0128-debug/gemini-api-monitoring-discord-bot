@@ -51,3 +51,18 @@ def test_config_requires_an_administrator_id(tmp_path, monkeypatch) -> None:
 """, encoding="utf-8")
     with pytest.raises(ValueError, match="admin_user_ids"):
         load_config(path)
+
+
+def test_config_rejects_zero_model_key_parallelism(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BOT", "bot-token")
+    path = tmp_path / "config.yaml"
+    path.write_text("""discord:
+  bot_token: ${BOT}
+  channel_id: '1'
+security:
+  admin_user_ids: [123]
+schedule:
+  model_key_parallelism: 0
+""", encoding="utf-8")
+    with pytest.raises(ValueError, match="model_key_parallelism"):
+        load_config(path)
