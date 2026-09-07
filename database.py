@@ -179,8 +179,11 @@ class StateStore:
             (cutoff.isoformat(), limit),
         ).fetchall()
 
-    def targets_for_models(self, model_ids: set[str]) -> list[tuple[ApiKey, str]]:
-        return [(key, model) for model in self.list_models() if model in model_ids for key in self.list_keys()]
+    def targets_for_models(self, model_ids: set[str], key_limit: int | None = None) -> list[tuple[ApiKey, str]]:
+        keys = self.list_keys()
+        if key_limit is not None:
+            keys = keys[:key_limit]
+        return [(key, model) for model in self.list_models() if model in model_ids for key in keys]
 
     def get_app_state(self, name: str) -> str | None:
         row = self.db.execute("SELECT value FROM app_state WHERE name=?", (name,)).fetchone()

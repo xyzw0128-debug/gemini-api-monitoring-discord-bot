@@ -60,3 +60,18 @@ def test_all_targets_are_grouped_by_model_then_key(tmp_path) -> None:
         ("one", "google/gemini-a"), ("two", "google/gemini-a"),
         ("one", "google/gemini-b"), ("two", "google/gemini-b"),
     ]
+
+
+def test_targets_for_models_limits_keys_per_selected_model(tmp_path) -> None:
+    store = StateStore(tmp_path / "monitor.db", Fernet.generate_key().decode())
+    store.bootstrap(
+        (ApiKey("one", "secret-one"), ApiKey("two", "secret-two")),
+        ("google/gemini-a", "google/gemini-b"),
+    )
+
+    assert [(key.id, model) for key, model in store.targets_for_models(
+        {"google/gemini-a", "google/gemini-b"}, key_limit=1,
+    )] == [
+        ("one", "google/gemini-a"),
+        ("one", "google/gemini-b"),
+    ]

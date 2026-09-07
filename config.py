@@ -92,6 +92,9 @@ def load_config(path: str | Path) -> AppConfig:
     model_key_parallelism = int(schedule.get("model_key_parallelism", 5))
     if model_key_parallelism < 1:
         raise ValueError("schedule.model_key_parallelism must be at least 1")
+    probe_key_limit = int(observer.get("probe_key_limit", 1))
+    if probe_key_limit < 1:
+        raise ValueError("openclaw_observer.probe_key_limit must be at least 1")
 
     return AppConfig(
         discord=DiscordConfig(token, int(channel_id)),
