@@ -27,9 +27,13 @@ class ProbeJob:
 
 
 class ProbeScheduler:
-    def __init__(self, store: StateStore, active_minutes: int, reconcile_seconds: int, stagger_seconds: float, stale_minutes: int, render: Render):
+    def __init__(
+        self, store: StateStore, active_minutes: int, reconcile_seconds: int, stagger_seconds: float,
+        stale_minutes: int, render: Render, model_key_parallelism: int = 5,
+    ):
         self.store, self.active_minutes, self.reconcile_seconds = store, active_minutes, reconcile_seconds
         self.stagger_seconds, self.stale_minutes, self.render = stagger_seconds, stale_minutes, render
+        self.model_key_parallelism = model_key_parallelism
         self.lock = asyncio.Lock()
         self._jobs: dict[asyncio.Task, ProbeJob] = {}
         self._resetting = False
@@ -45,35 +49,46 @@ class ProbeScheduler:
         return task
 
     async def _probe(self, targets: list[tuple], job: ProbeJob, *, stagger: bool = True) -> None:
-
         retry_sec = int(self.store.get_app_state("retry_seconds") or "1800")
 
         try:
             log_event("probe_job_started", source=job.source, target_count=job.total)
             async with self.lock, aiohttp.ClientSession() as session:
                 job.running = True
-                for index, (key, model) in enumerate(targets):
+                by_model: dict[str, list] = {}
+                for key, model in targets:
+                    by_model.setdefault(model, []).append(key)
+                for index, (model, keys) in enumerate(by_model.items()):
                     if index and stagger:
                         await asyncio.sleep(self.stagger_seconds)
-
-                    self.store.mark_checking(key.id, model)
-                    log_event("probe_started", source=job.source, key_id=key.id, model_id=model)
-                    await self.render()
-
-                    result = await probe_key_model(session, key.id, key.value, model, default_retry_sec=retry_sec)
-                    self.store.record(result, job.source)
-                    log_event(
-                        "probe_finished", source=job.source, key_id=key.id, model_id=model,
-                        outcome=result.status, http_status=result.http_status, latency_ms=result.latency_ms,
-                        limit_type=result.limit_type, reset_at=result.reset_at, error_type=result.error_type,
-                    )
-                    job.completed = index + 1
-                    await self.render()
+                    semaphore = asyncio.Semaphore(self.model_key_parallelism)
+                    await asyncio.gather(*(
+                        self._probe_one(session, key, model, job, retry_sec, semaphore)
+                        for key in keys
+                    ))
         except asyncio.CancelledError:
             # reset() collects every cancelled job before it clears all transient states once.
             raise
         finally:
             log_event("probe_job_finished", source=job.source, completed_count=job.completed, target_count=job.total)
+
+    async def _probe_one(
+        self, session: aiohttp.ClientSession, key, model: str, job: ProbeJob, retry_sec: int,
+        semaphore: asyncio.Semaphore,
+    ) -> None:
+        async with semaphore:
+            self.store.mark_checking(key.id, model)
+            log_event("probe_started", source=job.source, key_id=key.id, model_id=model)
+            await self.render()
+            result = await probe_key_model(session, key.id, key.value, model, default_retry_sec=retry_sec)
+            self.store.record(result, job.source)
+            log_event(
+                "probe_finished", source=job.source, key_id=key.id, model_id=model,
+                outcome=result.status, http_status=result.http_status, latency_ms=result.latency_ms,
+                limit_type=result.limit_type, reset_at=result.reset_at, error_type=result.error_type,
+            )
+            job.completed += 1
+            await self.render()
 
     def status(self) -> list[ProbeJob]:
         return list(self._jobs.values())

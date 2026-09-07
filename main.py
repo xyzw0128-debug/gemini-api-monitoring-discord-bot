@@ -18,7 +18,11 @@ async def run() -> None:
     store = StateStore(os.environ.get("MONITOR_DB", "monitor.db"), os.environ.get(config.security.encryption_key_env, ""))
     store.bootstrap(config.initial_keys, config.initial_models)
     bot = MonitorBot(store, config.discord.channel_id, config.security.admin_user_ids)
-    scheduler = ProbeScheduler(store, config.schedule.active_probe_interval_min, config.schedule.reconcile_interval_sec, config.schedule.probe_stagger_sec, config.schedule.stale_after_min, bot.render_dashboard)
+    scheduler = ProbeScheduler(
+        store, config.schedule.active_probe_interval_min, config.schedule.reconcile_interval_sec,
+        config.schedule.probe_stagger_sec, config.schedule.stale_after_min, bot.render_dashboard,
+        config.schedule.model_key_parallelism,
+    )
     bot.set_scheduler(scheduler)
     async with bot:
         asyncio.create_task(scheduler.active_loop())

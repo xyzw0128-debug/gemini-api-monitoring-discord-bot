@@ -64,7 +64,7 @@ class OpenClawObserver:
             return False
         self._last_seen[key] = now
         self.store.record_runtime_event(model_id, kind, f"OpenClaw {kind} 감지", now)
-        log_event("openclaw_event", model_id=model_id, kind=kind, probe_key_limit=self.probe_key_limit)
+        log_event("openclaw_event", model_id=model_id, kind=kind)
         await self.render()
         self.scheduler.refresh_models({model_id}, key_limit=self.probe_key_limit)
         return True

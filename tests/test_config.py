@@ -53,7 +53,7 @@ def test_config_requires_an_administrator_id(tmp_path, monkeypatch) -> None:
         load_config(path)
 
 
-def test_config_rejects_zero_openclaw_probe_key_limit(tmp_path, monkeypatch) -> None:
+def test_config_rejects_zero_model_key_parallelism(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("BOT", "bot-token")
     path = tmp_path / "config.yaml"
     path.write_text("""discord:
@@ -61,8 +61,8 @@ def test_config_rejects_zero_openclaw_probe_key_limit(tmp_path, monkeypatch) -> 
   channel_id: '1'
 security:
   admin_user_ids: [123]
-openclaw_observer:
-  probe_key_limit: 0
+schedule:
+  model_key_parallelism: 0
 """, encoding="utf-8")
-    with pytest.raises(ValueError, match="probe_key_limit"):
+    with pytest.raises(ValueError, match="model_key_parallelism"):
         load_config(path)
